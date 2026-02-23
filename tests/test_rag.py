@@ -87,6 +87,81 @@ class TestLoadDocuments:
         assert docs[0].page_content == "PDF page content"
         assert docs[0].metadata["page"] == 1
 
+    def test_load_pdf_uses_ocr_for_image_based_pages(self, tmp_path):
+        """Image-based pages (empty extract_text) should fall back to OCR."""
+        from rag.document_loader import load_pdf_file
+
+        fake_pdf = tmp_path / "scanned.pdf"
+        fake_pdf.write_bytes(b"%PDF-1.4 fake")
+
+        # pypdf returns no text (image-based page)
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = ""
+
+        mock_reader = MagicMock()
+        mock_reader.pages = [mock_page]
+
+        with patch("rag.document_loader.PdfReader", return_value=mock_reader), \
+             patch("rag.document_loader.convert_from_path") as mock_convert, \
+             patch("rag.document_loader.pytesseract") as mock_tess:
+            mock_convert.return_value = [MagicMock()]  # one fake image
+            mock_tess.image_to_string.return_value = "OCR extracted text"
+
+            docs = load_pdf_file(str(fake_pdf))
+
+        assert len(docs) == 1
+        assert docs[0].page_content == "OCR extracted text"
+        assert docs[0].metadata["page"] == 1
+        mock_convert.assert_called_once_with(str(fake_pdf), first_page=1, last_page=1)
+        mock_tess.image_to_string.assert_called_once()
+
+    def test_load_pdf_ocr_skips_truly_blank_pages(self, tmp_path):
+        """Pages where even OCR returns no text are silently skipped."""
+        from rag.document_loader import load_pdf_file
+
+        fake_pdf = tmp_path / "blank.pdf"
+        fake_pdf.write_bytes(b"%PDF-1.4 fake")
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = ""
+
+        mock_reader = MagicMock()
+        mock_reader.pages = [mock_page]
+
+        with patch("rag.document_loader.PdfReader", return_value=mock_reader), \
+             patch("rag.document_loader.convert_from_path") as mock_convert, \
+             patch("rag.document_loader.pytesseract") as mock_tess:
+            mock_convert.return_value = [MagicMock()]
+            mock_tess.image_to_string.return_value = "   "  # whitespace only
+
+            docs = load_pdf_file(str(fake_pdf))
+
+        assert docs == []
+
+    def test_ocr_pdf_page_raises_on_convert_failure(self, tmp_path):
+        """A RuntimeError with a helpful message is raised when pdf2image fails."""
+        from rag.document_loader import _ocr_pdf_page
+
+        fake_pdf = tmp_path / "bad.pdf"
+        fake_pdf.write_bytes(b"not a real pdf")
+
+        with patch("rag.document_loader.convert_from_path", side_effect=Exception("boom")):
+            with pytest.raises(RuntimeError, match="pdf2image failed"):
+                _ocr_pdf_page(str(fake_pdf), 1)
+
+    def test_ocr_pdf_page_raises_on_tesseract_failure(self, tmp_path):
+        """A RuntimeError with a helpful message is raised when Tesseract fails."""
+        from rag.document_loader import _ocr_pdf_page
+
+        fake_pdf = tmp_path / "bad.pdf"
+        fake_pdf.write_bytes(b"not a real pdf")
+
+        with patch("rag.document_loader.convert_from_path", return_value=[MagicMock()]), \
+             patch("rag.document_loader.pytesseract") as mock_tess:
+            mock_tess.image_to_string.side_effect = Exception("tesseract not found")
+            with pytest.raises(RuntimeError, match="Tesseract OCR failed"):
+                _ocr_pdf_page(str(fake_pdf), 1)
+
     def test_document_metadata_preserved(self, tmp_path):
         from rag.document_loader import load_text_file
 

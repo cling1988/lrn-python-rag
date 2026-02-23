@@ -9,7 +9,9 @@ the text came from.
 Supported sources
 -----------------
 * Plain-text files  (.txt, .md, …)
-* PDF files         (.pdf)  – extracted with pypdf (no external dependencies)
+* PDF files         (.pdf)  – embedded text extracted with pypdf; image-based
+                             (scanned) pages fall back to OCR via pdf2image +
+                             pytesseract (requires Tesseract to be installed)
 * Directories       – loads every .txt file found recursively
 * Web URLs          – fetches the page and strips HTML tags
 """
@@ -25,6 +27,16 @@ try:
     from pypdf import PdfReader
 except ImportError:  # pragma: no cover
     PdfReader = None  # type: ignore[assignment,misc]
+
+try:
+    from pdf2image import convert_from_path
+except ImportError:  # pragma: no cover
+    convert_from_path = None  # type: ignore[assignment]
+
+try:
+    import pytesseract
+except ImportError:  # pragma: no cover
+    pytesseract = None  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -67,11 +79,61 @@ def load_text_file(file_path: str) -> List[Document]:
     return [Document(page_content=text, metadata={"source": file_path})]
 
 
+def _ocr_pdf_page(file_path: str, page_number: int) -> str:
+    """Extract text from a single PDF page using OCR.
+
+    Used as a fallback when pypdf cannot extract embedded text (e.g. for
+    scanned / image-based PDFs).  Requires ``pdf2image`` and ``pytesseract``
+    plus a working Tesseract installation on the system.
+
+    Args:
+        file_path:   Path to the PDF file.
+        page_number: 1-based page index.
+
+    Returns:
+        OCR-extracted text string, or empty string if OCR is unavailable.
+    """
+    if convert_from_path is None:
+        raise ImportError(
+            "pdf2image is required for OCR on image-based PDFs. "
+            "Install it with: pip install pdf2image"
+        )
+    if pytesseract is None:
+        raise ImportError(
+            "pytesseract is required for OCR on image-based PDFs. "
+            "Install it with: pip install pytesseract"
+        )
+
+    try:
+        images = convert_from_path(
+            file_path, first_page=page_number, last_page=page_number
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"pdf2image failed to convert page {page_number} of '{file_path}'. "
+            "Ensure poppler-utils is installed (e.g. apt install poppler-utils)."
+        ) from exc
+
+    if not images:
+        return ""
+
+    try:
+        return pytesseract.image_to_string(images[0])
+    except Exception as exc:
+        raise RuntimeError(
+            f"Tesseract OCR failed on page {page_number} of '{file_path}'. "
+            "Ensure Tesseract is installed and accessible in your PATH "
+            "(e.g. apt install tesseract-ocr)."
+        ) from exc
+
+
 def load_pdf_file(file_path: str) -> List[Document]:
     """Extract text from every page of a PDF file.
 
-    pypdf is a pure-Python PDF library – no extra system dependencies needed.
-    Each page becomes its own Document so metadata carries the page number.
+    First attempts to extract embedded text with pypdf (fast, no system
+    dependencies).  If a page yields no text – as happens with scanned /
+    image-based PDFs – the page is converted to an image with ``pdf2image``
+    and OCR is run via ``pytesseract`` to recover the text.
 
     Args:
         file_path: Absolute or relative path to the PDF file.
@@ -91,7 +153,12 @@ def load_pdf_file(file_path: str) -> List[Document]:
     for page_number, page in enumerate(reader.pages, start=1):
         # extract_text() returns a string; it may be empty for image-only pages
         text = page.extract_text() or ""
-        if text.strip():  # skip blank pages
+
+        # Fallback: if pypdf found no text (image-based page), run OCR
+        if not text.strip():
+            text = _ocr_pdf_page(file_path, page_number)
+
+        if text.strip():
             documents.append(
                 Document(
                     page_content=text,

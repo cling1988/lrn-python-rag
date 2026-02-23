@@ -68,8 +68,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     query_parser.add_argument(
         "--model",
-        default="gemini-2.0-flash",
-        help="Gemini model name (default: gemini-2.0-flash)",
+        default="gemini-2.5-flash-lite",
+        help="Gemini model name (default: gemini-2.5-flash-lite)",
     )
     query_parser.add_argument(
         "--k",
@@ -103,7 +103,7 @@ def main() -> None:
 
     elif args.command == "query":
         pipeline = RAGPipeline(model=args.model, k=args.k)
-
+        print(args.source)
         if args.source:
             # Ingest on-the-fly then immediately query
             pipeline.ingest(args.source)

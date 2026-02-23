@@ -79,9 +79,9 @@ class RAGPipeline:
 
     def __init__(
         self,
-        model: str = "gemini-2.0-flash",
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
+        model: str = "gemini-2.5-flash-lite",
+        chunk_size: int = 200,
+        chunk_overlap: int = 20,
         k: int = 4,
         persist_directory: Optional[str] = None,
         api_key: Optional[str] = None,

@@ -226,7 +226,8 @@ def split_documents(
     chunks: List[Document] = []
 
     for doc in documents:
-        text_chunks = split_text(doc.page_content, chunk_size, chunk_overlap)
+        # text_chunks = split_text(doc.page_content, chunk_size, chunk_overlap)
+        text_chunks = doc.page_content.split("\n\n")
 
         for i, chunk_text in enumerate(text_chunks):
             # Copy parent metadata and add chunk index for debugging

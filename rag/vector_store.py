@@ -60,7 +60,7 @@ def _get_embedding(
     # Using task_type tells the model *how* the embedding will be used, which
     # lets it optimise the vector representation accordingly.
     response = client.models.embed_content(
-        model="models/text-embedding-004",
+        model="models/gemini-embedding-001",
         contents=text,
         config=genai_types.EmbedContentConfig(task_type=task_type),
     )
@@ -83,8 +83,11 @@ def _get_embeddings_batch(
     Returns:
         List of embedding vectors, one per input text, in the same order.
     """
+    print(f"Embedding {len(texts)} chunks with task_type={task_type}...")
+    for model in client.models.list():
+        print(model)
     response = client.models.embed_content(
-        model="models/text-embedding-004",
+        model="models/gemini-embedding-001",
         contents=texts,
         config=genai_types.EmbedContentConfig(task_type=task_type),
     )

@@ -303,6 +303,44 @@ class TestVectorStore:
 
     @patch("rag.vector_store.chromadb.EphemeralClient")
     @patch("rag.vector_store.genai.Client")
+    def test_add_multiple_documents_calls_embed_content_per_text(
+        self, MockGenaiClient, MockChromaClient
+    ):
+        """Each text must be embedded with a separate embed_content call.
+
+        Passing a list of strings to embed_content routes to the batch API
+        endpoint which is unsupported for text-embedding-004 on v1beta,
+        causing a 404 error for files that produce more than one chunk
+        (e.g. longer Chinese documents).
+        """
+        from rag.vector_store import VectorStore
+
+        fake_embedding = MagicMock()
+        fake_embedding.values = [0.1, 0.2, 0.3]
+        mock_embed_response = MagicMock()
+        mock_embed_response.embeddings = [fake_embedding]
+
+        mock_genai = MagicMock()
+        mock_genai.models.embed_content.return_value = mock_embed_response
+        MockGenaiClient.return_value = mock_genai
+
+        mock_collection = MagicMock()
+        mock_chroma = MagicMock()
+        mock_chroma.get_or_create_collection.return_value = mock_collection
+        MockChromaClient.return_value = mock_chroma
+
+        store = VectorStore(api_key="fake-key")
+        docs = [_make_doc("chunk one"), _make_doc("chunk two"), _make_doc("chunk three")]
+        store.add_documents(docs)
+
+        # embed_content must be called once per text, never with a list
+        assert mock_genai.models.embed_content.call_count == 3
+        for call_args in mock_genai.models.embed_content.call_args_list:
+            # contents must be a plain string, not a list
+            assert isinstance(call_args.kwargs["contents"], str)
+
+    @patch("rag.vector_store.chromadb.EphemeralClient")
+    @patch("rag.vector_store.genai.Client")
     def test_add_empty_documents_skipped(self, MockGenaiClient, MockChromaClient):
         from rag.vector_store import VectorStore
 

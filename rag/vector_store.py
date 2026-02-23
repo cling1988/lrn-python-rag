@@ -73,7 +73,12 @@ def _get_embeddings_batch(
     texts: List[str],
     task_type: str = "RETRIEVAL_DOCUMENT",
 ) -> List[List[float]]:
-    """Embed a list of texts in a single API call (more efficient than looping).
+    """Embed a list of texts by calling the embedding API once per text.
+
+    Passing a list of strings directly to ``embed_content`` routes to the
+    batch endpoint which is unsupported for ``text-embedding-004`` on the
+    v1beta API.  Embedding one text at a time via :func:`_get_embedding`
+    avoids this and is compatible with all API versions.
 
     Args:
         client:    Authenticated google.genai.Client instance.
@@ -83,12 +88,7 @@ def _get_embeddings_batch(
     Returns:
         List of embedding vectors, one per input text, in the same order.
     """
-    response = client.models.embed_content(
-        model="models/text-embedding-004",
-        contents=texts,
-        config=genai_types.EmbedContentConfig(task_type=task_type),
-    )
-    return [emb.values for emb in response.embeddings]
+    return [_get_embedding(client, text, task_type) for text in texts]
 
 
 # ---------------------------------------------------------------------------

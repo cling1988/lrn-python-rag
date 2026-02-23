@@ -10,11 +10,30 @@ the *specific paragraphs* that answer the user's question.
 Splitting strategy: Recursive Character Text Splitter
 ------------------------------------------------------
 We try to split on natural boundaries in order of preference:
+
+  English / universal (tried first):
   1. Double newline (paragraph break)
   2. Single newline (line break)
-  3. Period / sentence boundary
-  4. Space (word boundary)
-  5. Single character (last resort)
+  3. Period + space (English sentence boundary)
+  4. Space (English word boundary)
+
+  Chinese (tried when English separators are absent):
+  5. 。 Full stop
+  6. ！ Exclamation mark
+  7. ？ Question mark
+  8. ；Semicolon
+  9. ，Comma
+  10. 、Enumeration comma
+
+  Last resort:
+  11. Single character
+
+Chinese text has no spaces between words, so word-boundary splitting (step 4)
+would produce only one piece for a Chinese paragraph. By adding Chinese
+punctuation marks as explicit separators (steps 5-10), the splitter finds
+natural sentence and phrase boundaries that work for Chinese documents.
+English separators are tried first so that mixed-language documents are split
+on English boundaries before falling through to Chinese punctuation.
 
 Overlap
 -------
@@ -29,8 +48,24 @@ from typing import List
 from rag.document_loader import Document
 
 
-# Natural split points ordered from coarsest to finest granularity
-_SEPARATORS = ["\n\n", "\n", ". ", " ", ""]
+# Natural split points ordered from coarsest to finest granularity.
+# English separators come before Chinese punctuation so that mixed-language
+# documents are split on English sentence/word boundaries first.  For pure
+# Chinese text `. ` and ` ` will not be present, so the algorithm falls
+# through to the Chinese punctuation marks naturally.
+_SEPARATORS = [
+    "\n\n",   # paragraph break (universal)
+    "\n",     # line break (universal)
+    ". ",     # English sentence boundary (period + space)
+    " ",      # English word boundary
+    "。",     # Chinese full stop
+    "！",     # Chinese exclamation mark
+    "？",     # Chinese question mark
+    "；",     # Chinese semicolon
+    "，",     # Chinese comma
+    "、",     # Chinese enumeration comma
+    "",       # single character (last resort)
+]
 
 
 def split_text(

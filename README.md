@@ -10,6 +10,8 @@ This project implements a **Retrieval-Augmented Generation (RAG)** pipeline in P
 * **[pypdf](https://pypdf.readthedocs.io/)** – pure-Python PDF text extraction
 * Python standard library (`urllib`, `glob`, `re`) – everything else
 
+**Language support:** English and Chinese (中文) are both supported. The text splitter recognises Chinese punctuation (`。！？；，、`) as natural sentence boundaries, and the Google GenAI models (`text-embedding-004`, `gemini-2.0-flash`) are fully multilingual.
+
 ### How RAG works
 
 ```

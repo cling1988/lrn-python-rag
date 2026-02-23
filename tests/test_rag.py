@@ -139,6 +139,56 @@ class TestSplitText:
         chunks = split_text("", chunk_size=500, chunk_overlap=50)
         assert chunks == []
 
+    def test_chinese_text_split_on_punctuation(self):
+        from rag.text_splitter import split_text
+
+        # Build a long Chinese passage using only Chinese punctuation (no spaces).
+        # Each sentence is 11 chars (10 Chinese characters + full stop);
+        # 50 sentences = ~550 chars total.
+        sentence = "这是一段中文测试文本。"  # 11 chars
+        long_chinese = sentence * 50         # ~550 chars
+        chunks = split_text(long_chinese, chunk_size=50, chunk_overlap=10)
+
+        # Must produce more than one chunk
+        assert len(chunks) > 1
+        # Every chunk must stay within a reasonable bound
+        for chunk in chunks:
+            assert len(chunk) <= 100  # generous upper bound
+
+    def test_chinese_sentences_not_cut_mid_character(self):
+        from rag.text_splitter import split_text
+
+        # Each sentence ends with a Chinese full stop 。
+        sentences = [f"第{i}句话内容示例文字" + "。" for i in range(30)]
+        text = "".join(sentences)
+
+        chunks = split_text(text, chunk_size=60, chunk_overlap=10)
+
+        assert len(chunks) > 1
+        # Chunks should not start with 。 (full stops should stay with sentence)
+        for chunk in chunks:
+            # The chunk should contain recognizable Chinese characters
+            assert any("\u4e00" <= ch <= "\u9fff" for ch in chunk)
+
+    def test_mixed_chinese_english_text(self):
+        from rag.text_splitter import split_text
+
+        # Real-world documents often mix Chinese body text with English terms
+        mixed = (
+            "这是关于RAG系统的介绍。"
+            "RAG stands for Retrieval-Augmented Generation. "
+            "它结合了信息检索和大语言模型。"
+            "This makes answers more accurate and grounded. "
+        ) * 20
+
+        chunks = split_text(mixed, chunk_size=100, chunk_overlap=20)
+
+        assert len(chunks) > 1
+        # Join all chunks and verify no content is lost (ignoring separators)
+        joined = "".join(chunks)
+        assert "RAG" in joined
+        assert "信息检索" in joined
+
 
 class TestSplitDocuments:
     def test_splits_into_chunks(self):

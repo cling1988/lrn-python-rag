@@ -3,24 +3,54 @@ Build a RAG system with Python
 
 ## Overview
 
-This project implements a **Retrieval-Augmented Generation (RAG)** pipeline in Python. It allows you to:
+This project implements a **Retrieval-Augmented Generation (RAG)** pipeline in Python **from scratch** – no LangChain, no heavy frameworks. It uses:
 
-1. **Ingest** documents (PDF, plain text, directories, or web URLs) into a vector store.
-2. **Retrieve** semantically relevant chunks for a given query.
-3. **Generate** answers grounded in the retrieved context using an OpenAI chat model.
+* **[Google GenAI](https://ai.google.dev/)** – `text-embedding-004` for embeddings, `gemini-2.0-flash` for generation
+* **[ChromaDB](https://www.trychroma.com/)** – lightweight embedded vector database
+* **[pypdf](https://pypdf.readthedocs.io/)** – pure-Python PDF text extraction
+* Python standard library (`urllib`, `glob`, `re`) – everything else
 
-### Architecture
+### How RAG works
 
 ```
-Documents → Loader → Text Splitter → Embeddings → Vector Store (Chroma)
-                                                          ↓
-Question ──────────────────────────────────── Retriever → LLM → Answer
+                  ┌──── INGESTION (offline) ────────────────────────────────┐
+                  │                                                          │
+ Document  ──►  Step 1     ──►    Step 2       ──►   Step 3                 │
+ (PDF/txt/URL)  Load text    Split into chunks    Embed + store in ChromaDB  │
+                  │                                                          │
+                  └─────────────────────────────────────────────────────────┘
+
+                  ┌──── QUERYING (online) ───────────────────────────────────┐
+                  │                                                           │
+ Question  ──►  Step 4       ──►   Step 5                                    │
+               Embed query        Build prompt with       ──►  Answer        │
+               Retrieve top-K     retrieved context                          │
+               chunks             Call Gemini                                │
+                  │                                                           │
+                  └──────────────────────────────────────────────────────────┘
+```
+
+### Project structure
+
+```
+lrn-python-rag/
+├── rag/
+│   ├── __init__.py          # Package entry point
+│   ├── document_loader.py   # Step 1 – load text from PDF / txt / dir / URL
+│   ├── text_splitter.py     # Step 2 – split text into overlapping chunks
+│   ├── vector_store.py      # Step 3 & 4 – embed with Google GenAI, store & search in ChromaDB
+│   └── pipeline.py          # Steps 1-5 orchestrated in RAGPipeline
+├── tests/
+│   └── test_rag.py          # 24 unit tests (all mocked, no API key needed)
+├── main.py                  # CLI entry point
+├── requirements.txt
+└── .env.example
 ```
 
 ## Requirements
 
-- Python 3.10+
-- An [OpenAI API key](https://platform.openai.com/api-keys)
+* Python 3.10+
+* A [Google AI API key](https://aistudio.google.com/app/apikey) (free tier available)
 
 ## Setup
 
@@ -29,90 +59,61 @@ Question ───────────────────────�
 git clone https://github.com/cling1988/lrn-python-rag.git
 cd lrn-python-rag
 
-# 2. Create and activate a virtual environment (optional but recommended)
+# 2. Create and activate a virtual environment (recommended)
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Set your OpenAI API key
-cp .env.example .env        # then edit .env and add your key
-# or simply:
-export OPENAI_API_KEY=sk-...
+# 4. Configure your API key
+cp .env.example .env
+# Edit .env and set GOOGLE_API_KEY=your-key-here
 ```
 
-Create a `.env` file (never commit this file):
-
-```
-OPENAI_API_KEY=sk-your-key-here
-```
-
-## Usage
-
-### Python API
+## Python API
 
 ```python
 from rag import RAGPipeline
 
-pipeline = RAGPipeline()
+# Create a pipeline (persists the vector store to disk)
+pipeline = RAGPipeline(persist_directory="chroma_db")
 
-# Ingest a document (PDF, text file, directory, or URL)
+# Step 1-3: ingest a document (PDF, text file, directory, or URL)
 pipeline.ingest("data/docs/my_document.pdf")
 
-# Ask a question
+# Steps 4-5: ask a question and get a grounded answer
 answer = pipeline.query("What is the main topic of the document?")
 print(answer)
 
-# Retrieve relevant chunks without generating an answer
-chunks = pipeline.retrieve("important concept")
-for chunk in chunks:
-    print(chunk.page_content)
+# Step 4 only: inspect what chunks were retrieved (useful for debugging)
+results = pipeline.retrieve("important concept")
+for doc, distance in results:
+    print(f"[dist={distance:.3f}] {doc.page_content[:80]}…")
 ```
 
-Persist the vector store to disk so you don't re-embed on every run:
+Reload a previously persisted vector store without re-embedding:
 
 ```python
 pipeline = RAGPipeline(persist_directory="chroma_db")
-pipeline.ingest("data/docs/my_document.pdf")
-
-# Later, reload without re-ingesting
-pipeline2 = RAGPipeline(persist_directory="chroma_db")
-pipeline2.load()
-answer = pipeline2.query("What is discussed in chapter 3?")
+pipeline.load()  # no re-embedding; reads from disk
+answer = pipeline.query("What is discussed in chapter 3?")
 ```
 
-### CLI
+## CLI
 
 ```bash
 # Ingest a document
-python main.py ingest data/docs/my_document.pdf --persist-dir chroma_db
+python main.py ingest data/docs/report.pdf --persist-dir chroma_db
 
-# Query using a persisted vector store
-python main.py query "What is the main topic?" --persist-dir chroma_db
+# Query a persisted store
+python main.py query "What are the key findings?" --persist-dir chroma_db
 
-# Ingest and query in one step
-python main.py query "What is discussed?" --source data/docs/my_document.pdf
+# Ingest + query in one step
+python main.py query "Summarise the document" --source data/docs/report.pdf
 
-# Ingest a URL
-python main.py ingest https://example.com/article --persist-dir chroma_db
-```
-
-## Project Structure
-
-```
-lrn-python-rag/
-├── rag/
-│   ├── __init__.py          # Package entry point (exports RAGPipeline)
-│   ├── document_loader.py   # Load PDFs, text files, directories, URLs
-│   ├── text_splitter.py     # Split documents into overlapping chunks
-│   ├── vector_store.py      # Build / load Chroma vector store
-│   └── pipeline.py          # RAGPipeline: ingest, retrieve, query
-├── tests/
-│   └── test_rag.py          # Unit tests (mocked OpenAI / Chroma)
-├── main.py                  # CLI entry point
-├── requirements.txt
-└── .env.example
+# Use a different Gemini model
+python main.py query "What is RAG?" --source notes.txt --model gemini-1.5-pro
 ```
 
 ## Running Tests
@@ -122,14 +123,15 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-## Configuration
+Tests are fully mocked – no API key or internet connection required.
 
-`RAGPipeline` accepts the following constructor parameters:
+## Configuration
 
 | Parameter | Default | Description |
 |---|---|---|
-| `model` | `"gpt-4o-mini"` | OpenAI chat model |
+| `model` | `"gemini-2.0-flash"` | Gemini generation model |
 | `chunk_size` | `1000` | Characters per text chunk |
-| `chunk_overlap` | `200` | Overlap between chunks |
+| `chunk_overlap` | `200` | Overlap characters between chunks |
 | `k` | `4` | Number of chunks to retrieve |
-| `persist_directory` | `None` | Directory for vector store persistence |
+| `persist_directory` | `None` | ChromaDB persistence directory (in-memory when `None`) |
+| `api_key` | env `GOOGLE_API_KEY` | Google AI API key |
